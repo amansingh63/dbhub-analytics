@@ -40,7 +40,8 @@ export function quoteIdentifier(identifier: string, dbType: ConnectorType): stri
 
     case "mysql":
     case "mariadb":
-      // MySQL and MariaDB use backticks
+    case "databricks":
+      // MySQL, MariaDB, and Databricks use backticks
       // Escape existing backticks by doubling them
       return `\`${identifier.replace(/`/g, "``")}\``;
 
@@ -56,19 +57,27 @@ export function quoteIdentifier(identifier: string, dbType: ConnectorType): stri
 }
 
 /**
- * Quote a qualified identifier (schema.table or database.table)
+ * Quote a qualified identifier (schema.table, database.table, or catalog.schema.table)
  *
  * @param tableName - The table name
  * @param schemaName - Optional schema/database name
  * @param dbType - The database type
- * @returns Properly quoted qualified identifier (e.g., "schema"."table")
+ * @param catalogName - Optional catalog name (Databricks three-level namespace: catalog.schema.table)
+ * @returns Properly quoted qualified identifier (e.g., `catalog`.`schema`.`table`)
  */
 export function quoteQualifiedIdentifier(
   tableName: string,
   schemaName: string | undefined,
-  dbType: ConnectorType
+  dbType: ConnectorType,
+  catalogName?: string
 ): string {
   const quotedTable = quoteIdentifier(tableName, dbType);
+
+  if (catalogName && schemaName) {
+    const quotedCatalog = quoteIdentifier(catalogName, dbType);
+    const quotedSchema = quoteIdentifier(schemaName, dbType);
+    return `${quotedCatalog}.${quotedSchema}.${quotedTable}`;
+  }
 
   if (schemaName) {
     const quotedSchema = quoteIdentifier(schemaName, dbType);

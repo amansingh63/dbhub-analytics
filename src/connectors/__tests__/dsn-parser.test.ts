@@ -127,3 +127,5 @@ describe('DSN Parser - SQL Server NTLM Authentication', () => {
     expect(config.password).toBe('password');
   });
 });
+
+// Databricks DSN parser tests are in databricks.test.ts (requires @databricks/sql mock)

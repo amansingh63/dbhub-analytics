@@ -10,12 +10,10 @@
 #    - Automatically determines the appropriate npm tag based on version format
 #    - Skips publishing if the version already exists on npm
 #
-# Authentication: Uses OIDC trusted publishing (no npm tokens required)
-# Prerequisites: Configure trusted publisher at https://www.npmjs.com/package/@bytebase/dbhub/access
-#   - Organization/User: bytebase (or your npm org)
-#   - Repository: dbhub
-#   - Workflow filename: npm-publish.yml
-#   - Environment: (leave empty unless using GitHub environments)
+# Authentication: Uses NPM_TOKEN secret for publishing
+# Prerequisites: Add NPM_TOKEN as a GitHub Actions secret
+#   - Generate token at https://www.npmjs.com/settings/~/tokens
+#   - Add to repo: Settings > Secrets > Actions > NPM_TOKEN
 
 name: Publish to npm
 
@@ -51,17 +49,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Set up Node.js (no registry-url needed for OIDC trusted publishing)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
-      # Upgrade npm to latest for OIDC trusted publishing support (requires npm 11.5+)
-      - name: Upgrade npm
-        run: |
-          npm install -g npm@latest
-          echo "npm version: $(npm --version)"
+          registry-url: "https://registry.npmjs.org"
 
       # Install pnpm for faster and more reliable package management
       - name: Install pnpm
@@ -95,7 +87,7 @@ jobs:
             VERSION="${CURRENT_VERSION}"
             
             # Check if this version already exists in npm registry to avoid duplicates
-            if npm view @bytebase/dbhub@${VERSION} version &> /dev/null; then
+            if npm view dbhub-analytics@${VERSION} version &> /dev/null; then
               echo "Version ${VERSION} already exists in npm registry. Skipping publish."
               SHOULD_PUBLISH="false"
             else
@@ -130,7 +122,7 @@ jobs:
           if [ "${SHOULD_PUBLISH}" = "true" ]; then
             # Step 1: Update package name and version
             echo "Preparing package.json for publishing..."
-            jq --arg version "$VERSION" '.name = "@bytebase/dbhub" | .version = $version' package.json > package.json.tmp
+            jq --arg version "$VERSION" '.name = "dbhub-analytics" | .version = $version' package.json > package.json.tmp
             mv package.json.tmp package.json
             
             # Step 2: Configure which files to include in the published package
@@ -140,7 +132,7 @@ jobs:
 
             # Step 3: Add binary entry for CLI usage (makes it executable with 'npx' or after global install)
             echo "Adding bin entry for CLI usage..."
-            jq '.bin = {"dbhub": "dist/index.js"}' package.json > package.json.tmp 
+            jq '.bin = {"dbhub-analytics": "dist/index.js"}' package.json > package.json.tmp
             mv package.json.tmp package.json
             
             echo "Package.json prepared successfully for publishing"
@@ -153,11 +145,11 @@ jobs:
       - name: Publish to npm
         if: env.SHOULD_PUBLISH == 'true'
         run: |
-          echo "Publishing @bytebase/dbhub@${{ env.PACKAGE_VERSION }} with tag ${{ env.NPM_TAG }}..."
+          echo "Publishing dbhub-analytics@${{ env.PACKAGE_VERSION }} with tag ${{ env.NPM_TAG }}..."
           echo "npm version: $(npm --version)"
-          # --provenance enables OIDC authentication and signed attestation
-          # No NODE_AUTH_TOKEN needed - authentication via GitHub OIDC
-          npm publish --access public --tag ${{ env.NPM_TAG }} --provenance
+          npm publish --access public --tag ${{ env.NPM_TAG }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           echo "✅ Successfully published to npm with provenance!"
           
       # Display a message when skipping publication

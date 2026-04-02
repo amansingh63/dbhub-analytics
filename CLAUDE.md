@@ -4,191 +4,155 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # DBHub Development Guidelines
 
-DBHub is a zero-dependency, token efficient database MCP server implementing the Model Context Protocol (MCP) server interface. This lightweight server bridges MCP-compatible clients (Claude Desktop, Claude Code, Cursor) with various database systems.
+DBHub is a database MCP server implementing the Model Context Protocol (MCP) server interface. It bridges MCP-compatible clients (Claude Desktop, Claude Code, Cursor) with various database systems (PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, Databricks SQL).
 
 ## Commands
 
-- Build: `pnpm run build` - Compiles TypeScript to JavaScript using tsup
-- Start: `pnpm run start` - Runs the compiled server
-- Dev: `pnpm run dev` - Runs server with tsx (no compilation needed)
-- Test: `pnpm test` - Run all tests
-- Test Watch: `pnpm test:watch` - Run tests in watch mode
-- Integration Tests: `pnpm test:integration` - Run database integration tests (requires Docker)
+Prerequisites: Node.js >= 20, pnpm, Docker (for integration tests).
+
+```bash
+pnpm install                    # Install dependencies (monorepo: root + frontend/)
+pnpm run build                  # Full build: generate API types + tsup backend + vite frontend
+pnpm run build:backend          # Backend only (generates API types + tsup)
+pnpm run dev                    # Dev mode: backend (HTTP transport) + frontend (Vite) concurrently
+pnpm run dev:backend            # Backend dev only with tsx
+pnpm run generate:api-types     # Regenerate src/api/openapi.d.ts from src/api/openapi.yaml
+
+# Testing (vitest)
+pnpm test                       # All tests (unit + integration)
+pnpm test:unit                  # Unit tests only (no Docker)
+pnpm test:integration           # Integration tests only (requires Docker)
+pnpm test:watch                 # Interactive watch mode
+pnpm test src/utils/__tests__/sql-parser.test.ts           # Single test file
+pnpm test -- --testNamePattern="PostgreSQL"                 # Tests matching pattern
+pnpm test:build                 # Post-build smoke test
+```
 
 ## Architecture Overview
 
-The codebase follows a modular architecture centered around the MCP protocol:
+### Monorepo Structure
+
+pnpm workspace with two packages (`pnpm-workspace.yaml`):
+- **Root** — Backend TypeScript MCP server, bundled with tsup to `dist/`
+- **`frontend/`** — React SPA (Vite + Tailwind + CodeMirror), builds to `dist/public/`
+
+### Backend (`src/`)
 
 ```
 src/
-├── connectors/          # Database-specific implementations
-│   ├── postgres/        # PostgreSQL connector
-│   ├── mysql/           # MySQL connector
-│   ├── mariadb/         # MariaDB connector
-│   ├── sqlserver/       # SQL Server connector
-│   └── sqlite/          # SQLite connector
-├── tools/               # MCP tool handlers
-│   ├── execute-sql.ts   # SQL execution handler
-│   └── search-objects.ts  # Unified search/list with progressive disclosure
-├── utils/               # Shared utilities
-│   ├── dsn-obfuscator.ts# DSN security
-│   ├── response-formatter.ts # Output formatting
-│   └── allowed-keywords.ts  # Read-only SQL validation
-└── index.ts             # Entry point with transport handling
+├── index.ts                 # Entry point: dynamic-imports connectors, calls main()
+├── server.ts                # MCP server: stdio/HTTP transport, Express routes, tool registration
+├── connectors/
+│   ├── interface.ts         # Connector/DSNParser interfaces, ConnectorRegistry
+│   ├── manager.ts           # ConnectorManager: multi-source connection lifecycle
+│   └── {postgres,mysql,mariadb,sqlserver,sqlite,databricks}/index.ts
+├── tools/
+│   ├── index.ts             # registerTools(): wires tools to MCP server
+│   ├── registry.ts          # ToolRegistry: manages enabled tools per source
+│   ├── execute-sql.ts       # execute_sql tool handler
+│   ├── search-objects.ts    # search_objects tool handler (progressive disclosure)
+│   └── custom-tool-handler.ts  # User-defined SQL tools from TOML config
+├── api/                     # REST API for the Workbench frontend
+│   ├── openapi.yaml         # OpenAPI spec (source of truth for API types)
+│   ├── openapi.d.ts         # Generated types (run generate:api-types)
+│   ├── sources.ts           # /api/sources endpoints
+│   └── requests.ts          # /api/requests endpoints
+├── config/
+│   ├── env.ts               # CLI args + env var resolution
+│   ├── toml-loader.ts       # TOML config parsing and validation
+│   └── demo-loader.ts       # --demo mode setup
+├── requests/store.ts        # In-memory request history (FIFO, 100 per source)
+├── types/                   # TypeScript interfaces (config.ts, sql.ts, ssh.ts)
+└── utils/                   # ~20 utility modules
 ```
 
-Key architectural patterns:
-- **Connector Registry**: Dynamic registration system for database connectors
-- **Connector Manager**: Manages database connections (single or multiple)
-  - Supports multi-database configuration via TOML
-  - Maintains `Map<id, Connector>` for named connections
-  - `getConnector(sourceId?)` returns connector by ID or default (first)
-  - `getCurrentConnector(sourceId?)` static method for tool handlers
-  - Backward compatible with single-connection mode
-  - Location: `src/connectors/manager.ts`
-- **Transport Abstraction**: Support for both stdio (desktop tools) and HTTP (network clients)
-  - HTTP transport endpoint: `/mcp` (aligns with official MCP SDK standard)
-  - Implemented in `src/server.ts` using `StreamableHTTPServerTransport` with JSON responses
-  - Runs in stateless mode (no SSE support) - GET requests to `/mcp` return 405 Method Not Allowed
-  - Tests in `src/__tests__/json-rpc-integration.test.ts`
-- **Tool Handlers**: Clean separation of MCP protocol concerns
-  - Tools accept optional `source_id` parameter for multi-database routing
-- **Token-Efficient Schema Exploration**: Unified search/list tool with progressive disclosure
-  - `search_objects`: Single tool for both pattern-based search and listing all objects
-  - Pattern parameter defaults to `%` (match all) - optional for listing use cases
-  - Detail levels: `names` (minimal), `summary` (with metadata), `full` (complete structure)
-  - Supports: schemas, tables, columns, procedures, indexes
-  - Inspired by Anthropic's MCP code execution patterns for reducing token usage
-- **Integration Test Base**: Shared test utilities for consistent connector testing
+### Key Architectural Patterns
+
+- **Connector Registry** (`src/connectors/interface.ts`): Static registry where each database connector self-registers. `ConnectorRegistry.register(connector)` at module load time.
+
+- **Connector Manager** (`src/connectors/manager.ts`): Manages `Map<sourceId, Connector>` for multi-database support. `ConnectorManager.getCurrentConnector(sourceId?)` is the static accessor used by tool handlers. First source is the default.
+
+- **Dynamic Driver Loading** (`src/index.ts`, `src/utils/module-loader.ts`): Database drivers (`pg`, `mysql2`, `@databricks/sql`, etc.) are `optionalDependencies` loaded via dynamic `import()`. tsup externalizes them so they aren't bundled into ESM. A missing driver skips that connector silently.
+
+- **Transport Modes** (`src/server.ts`): stdio (default, for desktop tools) or HTTP (`--transport=http`). HTTP uses Express with `/mcp` endpoint (stateless `StreamableHTTPServerTransport`), `/api/*` REST routes, `/healthz`, and serves the frontend from `dist/public/` in production.
+
+- **Tool System** (`src/tools/`): Two built-in tools (`execute_sql`, `search_objects`) plus user-defined custom tools from TOML `[[tools]]` sections. Tools accept optional `source_id` for multi-database routing.
+
+- **Progressive Disclosure** (`search_objects`): Single tool for schema exploration with detail levels: `names` (minimal), `summary` (with metadata), `full` (complete structure). Pattern defaults to `%` (match all).
 
 ## Configuration
 
-DBHub supports three configuration methods (in priority order):
+Three methods in priority order:
 
-### 1. TOML Configuration File (Multi-Database)
-**Recommended for projects requiring multiple database connections**
+1. **Command-line arguments** (highest) — `--dsn`, `--transport`, `--port`, `--config`, `--demo`, `--readonly`, `--max-rows`, SSH options
+2. **TOML config file** — `dbhub.toml` or `--config=path`. Supports multi-database `[[sources]]` and `[[tools]]` sections. See `dbhub.toml.example` for full reference.
+3. **Environment variables / `.env` files** (lowest) — `DSN` or individual `DB_TYPE`, `DB_HOST`, etc. See `.env.example`.
 
-- Create `dbhub.toml` in your project directory or use `--config=path/to/config.toml`
-- Configuration structure:
-  - `[[sources]]` - Database connection definitions with unique `id` fields
-  - `[[tools]]` - Tool configuration (execution settings, custom tools)
-- Example:
-  ```toml
-  [[sources]]
-  id = "prod_pg"
-  dsn = "postgres://user:pass@localhost:5432/production"
-  connection_timeout = 60
-  query_timeout = 30
+## Adding a Database Connector
 
-  [[sources]]
-  id = "staging_mysql"
-  type = "mysql"
-  host = "localhost"
-  database = "staging"
-  user = "root"
-  password = "secret"
+1. Create `src/connectors/{db-type}/index.ts`
+2. Implement the `Connector` and `DSNParser` interfaces from `src/connectors/interface.ts`
+3. Register with `ConnectorRegistry.register(connector)` in the module
+4. Add dynamic import entry in `src/index.ts` `connectorModules` array
+5. Add the driver to `optionalDependencies` in `package.json` and to `external` in `tsup.config.ts`
 
-  # Tool configuration (readonly, max_rows are tool-level settings)
-  [[tools]]
-  name = "execute_sql"
-  source = "prod_pg"
-  readonly = true
-  max_rows = 1000
-  ```
-- Key files:
-  - `src/types/config.ts`: TypeScript interfaces for TOML structure
-  - `src/config/toml-loader.ts`: TOML parsing and validation
-  - `src/config/__tests__/toml-loader.test.ts`: Comprehensive test suite
-- Features:
-  - Per-source settings: SSH tunnels, timeouts, SSL configuration
-  - Per-tool settings: `readonly`, `max_rows` (configured in `[[tools]]` section, not `[[sources]]`)
-  - Custom tools: Define reusable, parameterized SQL operations
-  - Path expansion for `~/` in file paths
-  - Automatic password redaction in logs
-  - First source is the default database
-- Usage in MCP tools: Add optional `source_id` parameter (e.g., `execute_sql(sql, source_id="prod_pg")`)
-- See `dbhub.toml.example` for complete configuration reference
-- Documentation: https://dbhub.ai/config/toml
+DSN formats: `postgres://`, `mysql://`, `mariadb://`, `sqlserver://`, `sqlite:///path`, `sqlite:///:memory:`, `databricks://token:TOKEN@HOST/HTTP_PATH`
 
-### 2. Environment Variables (Single Database)
-- Copy `.env.example` to `.env` and configure for your database connection
-- Two ways to configure:
-  - Set `DSN` to a full connection string (recommended)
-  - Set individual parameters: `DB_TYPE`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
-- SSH tunnel via environment: `SSH_HOST`, `SSH_PORT`, `SSH_USER`, `SSH_PASSWORD`, `SSH_KEY`, `SSH_PASSPHRASE`
+## Databricks Connector
 
-### 3. Command-Line Arguments (Single Database, Highest Priority)
-- `--dsn`: Database connection string
-- `--transport`: `stdio` (default) or `http` for streamable HTTP transport (endpoint: `/mcp`)
-- `--port`: HTTP server port (default: 8080)
-- `--config`: Path to TOML configuration file
-- `--demo`: Use bundled SQLite employee database
-- `--readonly`: Restrict to read-only SQL operations (deprecated - use TOML configuration instead)
-- `--max-rows`: Limit rows returned from SELECT queries (deprecated - use TOML configuration instead)
-- SSH tunnel options: `--ssh-host`, `--ssh-port`, `--ssh-user`, `--ssh-password`, `--ssh-key`, `--ssh-passphrase`
-- Documentation: https://dbhub.ai/config/command-line
+The Databricks connector uses the `@databricks/sql` Node.js driver to connect to Databricks SQL Warehouses via the Thrift protocol.
 
-### Configuration Priority Order
-1. Command-line arguments (highest)
-2. TOML config file (if present)
-3. Environment variables
-4. `.env` files (`.env.local` in development, `.env` in production)
+**DSN format:**
+```
+databricks://token:ACCESS_TOKEN@WORKSPACE_HOST:PORT/HTTP_PATH?catalog=CATALOG&schema=SCHEMA
+```
 
-## Database Connectors
+- `token` (username): fixed literal, indicates PAT authentication
+- `ACCESS_TOKEN` (password): Databricks Personal Access Token (e.g., `dapi...`)
+- `WORKSPACE_HOST`: workspace hostname (e.g., `adb-xxx.azuredatabricks.net`)
+- `PORT`: optional, defaults to 443
+- `HTTP_PATH`: SQL warehouse path (e.g., `/sql/2.0/warehouses/abc123`)
+- `catalog`, `schema`: optional query params for initial catalog/schema (schema defaults to `default`)
 
-- Add new connectors in `src/connectors/{db-type}/index.ts`
-- Implement the `Connector` and `DSNParser` interfaces from `src/interfaces/connector.ts`
-- Register connector with `ConnectorRegistry.register(connector)`
-- DSN Examples:
-  - PostgreSQL: `postgres://user:password@localhost:5432/dbname?sslmode=disable`
-  - MySQL: `mysql://user:password@localhost:3306/dbname?sslmode=disable`
-  - MariaDB: `mariadb://user:password@localhost:3306/dbname?sslmode=disable`
-  - SQL Server: `sqlserver://user:password@localhost:1433/dbname?sslmode=disable`
-  - SQL Server (named instance): `sqlserver://user:password@localhost:1433/dbname?instanceName=ENV1`
-  - SQL Server (NTLM): `sqlserver://user:password@localhost:1433/dbname?authentication=ntlm&domain=MYDOMAIN`
-  - SQLite: `sqlite:///path/to/database.db` or `sqlite:///:memory:`
-- SSL modes: `sslmode=disable` (no SSL) or `sslmode=require` (SSL without cert verification)
+**TOML configuration:**
+```toml
+[[sources]]
+id = "databricks_prod"
+type = "databricks"
+host = "adb-xxx.azuredatabricks.net"
+password = "dapi..."           # access token
+database = "/sql/2.0/warehouses/abc123"  # HTTP path
+```
 
-## Testing Approach
+**Key differences from other connectors:**
+- No traditional indexes (returns empty array for `getTableIndexes`)
+- Three-level namespace: catalog.schema.table (schema discovery scoped to current catalog)
+- Uses `INFORMATION_SCHEMA` for metadata queries with single-quoted string literals (not backtick identifiers) in WHERE clauses
+- Integration tests require real Databricks credentials (env vars: `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_TOKEN`), not Docker/Testcontainers
 
-See [TESTING.md](TESTING.md) for comprehensive testing documentation.
+## Testing
 
-For detailed guidance on running and troubleshooting tests, refer to the [testing skill](.claude/skills/testing/SKILL.md). This skill is automatically activated when working with tests, test failures, or Docker/database container issues.
+Vitest with two projects (`vitest.config.ts`):
+- **unit**: `*.test.ts` excluding `*integration*` in filename — no Docker needed
+- **integration**: `*integration*.test.ts` — requires Docker + Testcontainers
 
-Key points:
-- Unit tests for individual components and utilities
-- Integration tests using Testcontainers for real database testing
-- All connectors have comprehensive integration test coverage
-- Pre-commit hooks run related tests automatically
-- Test specific databases: `pnpm test src/connectors/__tests__/{db-type}.integration.test.ts`
-- SSH tunnel tests: `pnpm test postgres-ssh-simple.integration.test.ts`
+**Naming convention matters**: integration tests MUST have `integration` in their filename to be routed correctly.
 
-## SSH Tunnel Support
+Database connector integration tests extend `IntegrationTestBase` (`src/connectors/__tests__/shared/integration-test-base.ts`) which provides container lifecycle, shared test suites, and standard test data (`users` + `orders` tables).
 
-DBHub supports SSH tunnels for secure database connections through bastion hosts:
+SQL Server containers are the slowest to start (3-5 min) and need 4GB+ Docker memory.
 
-- Configuration via command-line options: `--ssh-host`, `--ssh-port`, `--ssh-user`, `--ssh-password`, `--ssh-key`, `--ssh-passphrase`
-- Configuration via environment variables: `SSH_HOST`, `SSH_PORT`, `SSH_USER`, `SSH_PASSWORD`, `SSH_KEY`, `SSH_PASSPHRASE`
-- SSH config file support: Automatically reads from `~/.ssh/config` when using host aliases
-- Implementation in `src/utils/ssh-tunnel.ts` using the `ssh2` library
-- SSH config parsing in `src/utils/ssh-config-parser.ts` using the `ssh-config` library
-- Automatic tunnel establishment when SSH config is detected
-- Support for both password and key-based authentication
-- Default SSH key detection (tries `~/.ssh/id_rsa`, `~/.ssh/id_ed25519`, etc.)
-- Tunnel lifecycle managed by `ConnectorManager`
+Databricks integration tests require real credentials via environment variables (no Docker):
+```bash
+DATABRICKS_SERVER_HOSTNAME=host DATABRICKS_HTTP_PATH=/sql/... DATABRICKS_TOKEN=dapi... pnpm test -- databricks.integration
+```
+
+See `.claude/skills/testing/SKILL.md` for detailed testing guidance.
 
 ## Code Style
 
-- TypeScript with strict mode enabled
-- ES modules with `.js` extension in imports
-- Group imports: Node.js core modules → third-party → local modules
-- Use camelCase for variables/functions, PascalCase for classes/types
-- Include explicit type annotations for function parameters/returns
-- Use try/finally blocks with DB connections (always release clients)
-- Prefer async/await over callbacks and Promise chains
-- Format error messages consistently
-- Use parameterized queries for DB operations
-- Validate inputs with zod schemas
-- Include fallbacks for environment variables
-- Use descriptive variable/function names
-- Keep functions focused and single-purpose
+- TypeScript strict mode, ES modules with `.js` extension in imports
+- Import order: Node.js core → third-party → local modules
+- camelCase for variables/functions, PascalCase for classes/types
+- async/await, try/finally for DB connections, parameterized queries
+- Input validation with zod schemas

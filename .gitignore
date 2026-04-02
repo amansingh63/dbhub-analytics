@@ -89,4 +89,5 @@ $RECYCLE.BIN/
 *.dll
 *.exe
 *.o
-*.so 
+*.so
+.mcp.json
