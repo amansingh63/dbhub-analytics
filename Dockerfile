@@ -31,7 +31,7 @@ RUN pnpm run build
 # - --legacy: Use legacy deploy mode for pnpm v10 workspace compatibility
 # This creates a more efficient node_modules structure
 # by copying only what's needed from the pnpm store to /prod/dbhub-analytics
-RUN pnpm deploy --filter=dbhub-analytics --prod /prod/dbhub-analytics
+RUN pnpm deploy --filter=dbhub-analytics --prod --legacy /prod/dbhub-analytics
 
 # ============================================================================
 # Production Stage: Minimal runtime image
