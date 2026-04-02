@@ -1,7 +1,7 @@
 /**
  * Type definition for supported database connector types
  */
-export type ConnectorType = "postgres" | "mysql" | "mariadb" | "sqlite" | "sqlserver" | "databricks";
+export type ConnectorType = "postgres" | "mysql" | "mariadb" | "sqlite" | "sqlserver" | "databricks" | "bigquery";
 
 /**
  * Database Connector Interface
@@ -126,15 +126,15 @@ export interface Connector {
   disconnect(): Promise<void>;
 
   /**
-   * Get all catalogs in the database (Databricks three-level namespace: catalog.schema.table).
-   * Optional — only implemented by connectors that support catalogs (e.g., Databricks).
+   * Get all catalogs in the database (Databricks: catalog.schema.table, BigQuery: project.dataset.table).
+   * Optional — only implemented by connectors that support catalogs (e.g., Databricks, BigQuery).
    * @returns Promise with array of catalog names
    */
   getCatalogs?(): Promise<string[]>;
 
   /**
    * Get all schemas in the database
-   * @param catalog Optional catalog name (Databricks only). If not provided, uses the session's current catalog.
+   * @param catalog Optional catalog name (Databricks/BigQuery). If not provided, uses the session default.
    * @returns Promise with array of schema names
    */
   getSchemas(catalog?: string): Promise<string[]>;
@@ -146,7 +146,7 @@ export interface Connector {
    *   - SQL Server: 'dbo' schema
    *   - MySQL: Current active database from connection (DATABASE())
    *   - SQLite: Main database (schema concept doesn't exist in SQLite)
-   * @param catalog Optional catalog name (Databricks only). If not provided, uses the session's current catalog.
+   * @param catalog Optional catalog name (Databricks/BigQuery). If not provided, uses the session default.
    * @returns Promise with array of table names
    */
   getTables(schema?: string, catalog?: string): Promise<string[]>;
@@ -156,7 +156,7 @@ export interface Connector {
    * @param tableName The name of the table to get schema information for
    * @param schema Optional schema name. If not provided, implementation should use the default schema
    *   as described in getTables method.
-   * @param catalog Optional catalog name (Databricks only). If not provided, uses the session's current catalog.
+   * @param catalog Optional catalog name (Databricks/BigQuery). If not provided, uses the session default.
    * @returns Promise with array of column information
    */
   getTableSchema(tableName: string, schema?: string, catalog?: string): Promise<TableColumn[]>;
@@ -166,7 +166,7 @@ export interface Connector {
    * @param tableName The name of the table to check
    * @param schema Optional schema name. If not provided, implementation should use the default schema
    *   as described in getTables method.
-   * @param catalog Optional catalog name (Databricks only). If not provided, uses the session's current catalog.
+   * @param catalog Optional catalog name (Databricks/BigQuery). If not provided, uses the session default.
    * @returns Promise with boolean indicating if table exists
    */
   tableExists(tableName: string, schema?: string, catalog?: string): Promise<boolean>;
@@ -176,7 +176,7 @@ export interface Connector {
    * @param tableName The name of the table to get indexes for
    * @param schema Optional schema name. If not provided, implementation should use the default schema
    *   as described in getTables method.
-   * @param catalog Optional catalog name (Databricks only). If not provided, uses the session's current catalog.
+   * @param catalog Optional catalog name (Databricks/BigQuery). If not provided, uses the session default.
    * @returns Promise with array of index information
    */
   getTableIndexes(tableName: string, schema?: string, catalog?: string): Promise<TableIndex[]>;
@@ -186,7 +186,7 @@ export interface Connector {
    * @param schema Optional schema name. If not provided, implementation should use the default schema
    * @param routineType Optional filter: "procedure" for procedures only, "function" for functions only.
    *   If not provided, returns both procedures and functions.
-   * @param catalog Optional catalog name (Databricks only). If not provided, uses the session's current catalog.
+   * @param catalog Optional catalog name (Databricks/BigQuery). If not provided, uses the session default.
    * @returns Promise with array of stored procedure/function names
    */
   getStoredProcedures(schema?: string, routineType?: "procedure" | "function", catalog?: string): Promise<string[]>;
@@ -195,7 +195,7 @@ export interface Connector {
    * Get details for a specific stored procedure/function
    * @param procedureName The name of the procedure/function to get details for
    * @param schema Optional schema name. If not provided, implementation should use the default schema
-   * @param catalog Optional catalog name (Databricks only). If not provided, uses the session's current catalog.
+   * @param catalog Optional catalog name (Databricks/BigQuery). If not provided, uses the session default.
    * @returns Promise with stored procedure details
    */
   getStoredProcedureDetail(procedureName: string, schema?: string, catalog?: string): Promise<StoredProcedure>;

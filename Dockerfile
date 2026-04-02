@@ -1,7 +1,7 @@
 # ============================================================================
 # Builder Stage: Build application and prepare dependencies
 # ============================================================================
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -31,12 +31,12 @@ RUN pnpm run build
 # - --legacy: Use legacy deploy mode for pnpm v10 workspace compatibility
 # This creates a more efficient node_modules structure
 # by copying only what's needed from the pnpm store to /prod/dbhub-analytics
-RUN pnpm deploy --filter=dbhub-analytics --prod --legacy /prod/dbhub-analytics
+RUN pnpm deploy --filter=dbhub-analytics --prod /prod/dbhub-analytics
 
 # ============================================================================
 # Production Stage: Minimal runtime image
 # ============================================================================
-FROM node:22-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 

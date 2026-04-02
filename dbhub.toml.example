@@ -210,7 +210,31 @@ dsn = "postgres://postgres:postgres@localhost:5432/myapp"
 # type = "databricks"
 # host = "adb-1234567890123456.7.azuredatabricks.net"
 # password = "dapi1234567890abcdef"              # Personal Access Token
-# database = "/sql/2.0/warehouses/abcdef1234"    # HTTP path to SQL warehouse
+# path = "/sql/2.0/warehouses/abcdef1234"        # HTTP path to SQL warehouse
+
+# ============================================================================
+# GOOGLE BIGQUERY
+# ============================================================================
+
+# BigQuery - DSN format (with service account key file)
+# [[sources]]
+# id = "bigquery_analytics"
+# dsn = "bigquery://my-gcp-project/analytics_dataset?keyFile=~/keys/sa-key.json&location=US"
+
+# BigQuery - DSN format (using Application Default Credentials)
+# Set GOOGLE_APPLICATION_CREDENTIALS env var or use gcloud auth
+# [[sources]]
+# id = "bigquery_adc"
+# dsn = "bigquery://my-gcp-project/my_dataset"
+
+# BigQuery - Individual parameters
+# [[sources]]
+# id = "bigquery_prod"
+# type = "bigquery"
+# project = "my-gcp-project"                 # GCP project ID
+# database = "analytics_dataset"             # Default dataset (optional)
+# password = "~/keys/sa-key.json"            # Path to service account key file (optional)
+# location = "US"                            # Processing location (optional, e.g., US, EU, us-east1)
 
 # ============================================================================
 # TOOL CONFIGURATION (Optional)
@@ -325,6 +349,9 @@ dsn = "postgres://postgres:postgres@localhost:5432/myapp"
 #   search_path = "schema1,public"  # PostgreSQL only: comma-separated schemas
 #   aws_iam_auth = true         # Optional: enable AWS RDS IAM auth (postgres/mysql/mariadb)
 #   aws_region = "eu-west-1"    # Required when aws_iam_auth = true
+#   path = "/sql/2.0/warehouses/..."  # Databricks only: HTTP path to SQL warehouse
+#   project = "my-gcp-project"  # BigQuery only: GCP project ID
+#   location = "US"             # BigQuery only: processing location (e.g., US, EU, us-east1)
 #
 # DSN Formats:
 #   PostgreSQL:  postgres://user:pass@host:5432/database?sslmode=require
@@ -333,9 +360,10 @@ dsn = "postgres://postgres:postgres@localhost:5432/myapp"
 #   SQL Server:  sqlserver://user:pass@host:1433/database
 #   SQLite:      sqlite:///path/to/file.db  or  sqlite:///:memory:
 #   Databricks:  databricks://token:TOKEN@host/sql/2.0/warehouses/ID?catalog=CAT&schema=SCH
+#   BigQuery:    bigquery://PROJECT_ID/DATASET?keyFile=/path/to/key.json&location=US
 #
 # Default Ports:
-#   PostgreSQL: 5432 | MySQL/MariaDB: 3306 | SQL Server: 1433 | Databricks: 443
+#   PostgreSQL: 5432 | MySQL/MariaDB: 3306 | SQL Server: 1433 | Databricks: 443 | BigQuery: N/A (HTTP API)
 #
 # SSH Tunnel Options:
 #   ssh_host, ssh_port (default: 22), ssh_user
@@ -364,3 +392,4 @@ dsn = "postgres://postgres:postgres@localhost:5432/myapp"
 #   SQL Server:     @p1, @p2, @p3
 #   SQLite:         ?, ?, ?
 #   Databricks:     ?, ?, ?
+#   BigQuery:       ?, ?, ?

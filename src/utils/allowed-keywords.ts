@@ -13,6 +13,7 @@ export const allowedKeywords: Record<ConnectorType, string[]> = {
   sqlite: ["select", "with", "explain", "pragma"],
   sqlserver: ["select", "with", "explain", "showplan"],
   databricks: ["select", "with", "explain", "show", "describe", "desc"],
+  bigquery: ["select", "with", "explain", "show", "describe", "desc"],
 };
 
 /**
@@ -57,6 +58,7 @@ const mutatingPatterns: Record<ConnectorType, RegExp> = {
   sqlite: mutatingPatternWithReplace,
   sqlserver: mutatingPattern,
   databricks: mutatingPattern,
+  bigquery: mutatingPattern,
 };
 
 const selectIntoPattern = /\bselect\b[\s\S]+\binto\b/i;

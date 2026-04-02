@@ -7,12 +7,12 @@
     "url": "https://github.com/amansingh63/dbhub-analytics",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "dbhub-analytics",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },
@@ -26,7 +26,7 @@
         },
         {
           "name": "DB_TYPE",
-          "description": "Database type: postgres, mysql, mariadb, sqlserver, sqlite",
+          "description": "Database type: postgres, mysql, mariadb, sqlserver, sqlite, databricks, bigquery",
           "isRequired": false,
           "format": "string",
           "isSecret": false

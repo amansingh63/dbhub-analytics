@@ -178,6 +178,7 @@ const dialectScanners: Record<ConnectorType, TokenScanner> = {
   sqlite: scanTokenSQLite,
   sqlserver: scanTokenSQLServer,
   databricks: scanTokenDatabricks,
+  bigquery: scanTokenDatabricks, // BigQuery uses same syntax: backticks, single/double quotes, --//* */ comments
 };
 
 function getScanner(dialect?: ConnectorType): TokenScanner {

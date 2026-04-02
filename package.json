@@ -1,6 +1,6 @@
 {
   "name": "dbhub-analytics",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "mcpName": "io.github.amansingh63/dbhub-analytics",
   "description": "MCP server for Databricks SQL, Google BigQuery, PostgreSQL, MySQL, SQL Server, SQLite, MariaDB — connect AI assistants to cloud data warehouses and databases",
   "repository": {
@@ -36,7 +36,7 @@
   "engines": {
     "node": ">=20"
   },
-  "keywords": ["mcp", "mcp-server", "databricks", "bigquery", "database", "sql", "claude-desktop", "cursor", "model-context-protocol", "analytics"],
+  "keywords": ["mcp", "mcp-server", "databricks", "bigquery", "google-bigquery", "databricks-sql", "database", "sql", "postgresql", "mysql", "sqlite", "sqlserver", "mariadb", "claude-desktop", "claude-code", "cursor", "model-context-protocol", "data-warehouse", "analytics", "ai-database", "llm-tools", "schema-explorer"],
   "author": "amansingh63",
   "license": "MIT",
   "dependencies": {
@@ -52,6 +52,7 @@
   },
   "optionalDependencies": {
     "@databricks/sql": "^1.13.0",
+    "@google-cloud/bigquery": "^8.1.1",
     "better-sqlite3": "^11.9.0",
     "mariadb": "^3.4.0",
     "mssql": "^11.0.1",
@@ -92,5 +93,5 @@
   "include": [
     "src/**/*"
   ],
-  "packageManager": "pnpm@9.12.2+sha512.22721b3a11f81661ae1ec68ce1a7b879425a1ca5b991c975b074ac220b187ce56c708fe5db69f4c962c989452eee76c82877f4ee80f474cebd61ee13461b6228"
+  "packageManager": "pnpm@10.33.0"
 }

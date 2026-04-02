@@ -168,6 +168,11 @@ export function buildDSNFromEnvParams(): { dsn: string; source: string } | null 
     if (!dbName) {
       return null;
     }
+  } else if (dbType?.toLowerCase() === 'bigquery') {
+    // BigQuery only requires DB_TYPE and DB_HOST (project ID)
+    if (!dbHost) {
+      return null;
+    }
   } else {
     // For other databases, require all essential parameters
     if (!dbType || !dbHost || !dbUser || !dbPassword || !dbName) {
@@ -176,7 +181,7 @@ export function buildDSNFromEnvParams(): { dsn: string; source: string } | null 
   }
 
   // Validate supported database types
-  const supportedTypes = ['postgres', 'postgresql', 'mysql', 'mariadb', 'sqlserver', 'sqlite', 'databricks'];
+  const supportedTypes = ['postgres', 'postgresql', 'mysql', 'mariadb', 'sqlserver', 'sqlite', 'databricks', 'bigquery'];
   if (!supportedTypes.includes(dbType.toLowerCase())) {
     throw new Error(`Unsupported DB_TYPE: ${dbType}. Supported types: ${supportedTypes.join(', ')}`);
   }
@@ -202,6 +207,18 @@ export function buildDSNFromEnvParams(): { dsn: string; source: string } | null 
           dsn: `sqlite:///${dbName}`,
           source: 'individual environment variables'
         };
+      case 'bigquery':
+        // BigQuery: DB_HOST=projectId, DB_NAME=dataset (optional), DB_PASSWORD=keyFile (optional)
+        {
+          const bqProject = dbHost || '';
+          let bqDsn = `bigquery://${bqProject}`;
+          if (dbName) bqDsn += `/${dbName}`;
+          if (dbPassword) bqDsn += `?keyFile=${encodeURIComponent(dbPassword)}`;
+          return {
+            dsn: bqDsn,
+            source: 'individual environment variables'
+          };
+        }
       case 'databricks':
         port = '443';
         break;
@@ -571,7 +588,7 @@ export async function resolveSourceConfigs(): Promise<{ sources: SourceConfig[];
     const protocol = dsnUrl.protocol.replace(':', '');
 
     // Map protocol to database type
-    let dbType: "postgres" | "mysql" | "mariadb" | "sqlserver" | "sqlite" | "databricks";
+    let dbType: "postgres" | "mysql" | "mariadb" | "sqlserver" | "sqlite" | "databricks" | "bigquery";
     if (protocol === 'postgresql' || protocol === 'postgres') {
       dbType = 'postgres';
     } else if (protocol === 'mysql') {
@@ -584,6 +601,8 @@ export async function resolveSourceConfigs(): Promise<{ sources: SourceConfig[];
       dbType = 'sqlite';
     } else if (protocol === 'databricks') {
       dbType = 'databricks';
+    } else if (protocol === 'bigquery') {
+      dbType = 'bigquery';
     } else {
       throw new Error(`Unsupported database type in DSN: ${protocol}`);
     }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # DBHub Development Guidelines
 
-DBHub is a database MCP server implementing the Model Context Protocol (MCP) server interface. It bridges MCP-compatible clients (Claude Desktop, Claude Code, Cursor) with various database systems (PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, Databricks SQL).
+DBHub is a database MCP server implementing the Model Context Protocol (MCP) server interface. It bridges MCP-compatible clients (Claude Desktop, Claude Code, Cursor) with various database systems (PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, Databricks SQL, Google BigQuery).
 
 ## Commands
 
@@ -45,7 +45,7 @@ src/
 ├── connectors/
 │   ├── interface.ts         # Connector/DSNParser interfaces, ConnectorRegistry
 │   ├── manager.ts           # ConnectorManager: multi-source connection lifecycle
-│   └── {postgres,mysql,mariadb,sqlserver,sqlite,databricks}/index.ts
+│   └── {postgres,mysql,mariadb,sqlserver,sqlite,databricks,bigquery}/index.ts
 ├── tools/
 │   ├── index.ts             # registerTools(): wires tools to MCP server
 │   ├── registry.ts          # ToolRegistry: manages enabled tools per source
@@ -72,7 +72,7 @@ src/
 
 - **Connector Manager** (`src/connectors/manager.ts`): Manages `Map<sourceId, Connector>` for multi-database support. `ConnectorManager.getCurrentConnector(sourceId?)` is the static accessor used by tool handlers. First source is the default.
 
-- **Dynamic Driver Loading** (`src/index.ts`, `src/utils/module-loader.ts`): Database drivers (`pg`, `mysql2`, `@databricks/sql`, etc.) are `optionalDependencies` loaded via dynamic `import()`. tsup externalizes them so they aren't bundled into ESM. A missing driver skips that connector silently.
+- **Dynamic Driver Loading** (`src/index.ts`, `src/utils/module-loader.ts`): Database drivers (`pg`, `mysql2`, `@databricks/sql`, `@google-cloud/bigquery`, etc.) are `optionalDependencies` loaded via dynamic `import()`. tsup externalizes them so they aren't bundled into ESM. A missing driver skips that connector silently.
 
 - **Transport Modes** (`src/server.ts`): stdio (default, for desktop tools) or HTTP (`--transport=http`). HTTP uses Express with `/mcp` endpoint (stateless `StreamableHTTPServerTransport`), `/api/*` REST routes, `/healthz`, and serves the frontend from `dist/public/` in production.
 
@@ -95,8 +95,13 @@ Three methods in priority order:
 3. Register with `ConnectorRegistry.register(connector)` in the module
 4. Add dynamic import entry in `src/index.ts` `connectorModules` array
 5. Add the driver to `optionalDependencies` in `package.json` and to `external` in `tsup.config.ts`
+6. Add `"db-type"` to all `Record<ConnectorType, ...>` maps: `allowedKeywords` + `mutatingPatterns` (`src/utils/allowed-keywords.ts`), `dialectScanners` (`src/utils/sql-parser.ts`), `protocolToConnectorType` + `getDefaultPortForType` (`src/utils/dsn-obfuscate.ts`)
+7. Add identifier quoting case in `src/utils/identifier-quoter.ts`
+8. Add type to `ConnectionParams.type` in `src/types/config.ts`, OpenAPI enum in `src/api/openapi.yaml`, and frontend `DatabaseType` in `frontend/src/types/datasource.ts`
+9. Add DSN builder in `src/config/toml-loader.ts` and env var support in `src/config/env.ts`
+10. Add logo SVG in `frontend/src/assets/logos/` and register in `frontend/src/lib/db-logos.ts`
 
-DSN formats: `postgres://`, `mysql://`, `mariadb://`, `sqlserver://`, `sqlite:///path`, `sqlite:///:memory:`, `databricks://token:TOKEN@HOST/HTTP_PATH`
+DSN formats: `postgres://`, `mysql://`, `mariadb://`, `sqlserver://`, `sqlite:///path`, `sqlite:///:memory:`, `databricks://token:TOKEN@HOST/HTTP_PATH`, `bigquery://PROJECT_ID/DATASET?keyFile=PATH&location=LOC`
 
 ## Databricks Connector
 
@@ -121,7 +126,7 @@ id = "databricks_prod"
 type = "databricks"
 host = "adb-xxx.azuredatabricks.net"
 password = "dapi..."           # access token
-database = "/sql/2.0/warehouses/abc123"  # HTTP path
+path = "/sql/2.0/warehouses/abc123"  # HTTP path to SQL warehouse
 ```
 
 **Key differences from other connectors:**
@@ -129,6 +134,40 @@ database = "/sql/2.0/warehouses/abc123"  # HTTP path
 - Three-level namespace: catalog.schema.table (schema discovery scoped to current catalog)
 - Uses `INFORMATION_SCHEMA` for metadata queries with single-quoted string literals (not backtick identifiers) in WHERE clauses
 - Integration tests require real Databricks credentials (env vars: `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_TOKEN`), not Docker/Testcontainers
+
+## BigQuery Connector
+
+The BigQuery connector uses the `@google-cloud/bigquery` Node.js client library to connect to Google BigQuery via HTTP API.
+
+**DSN format:**
+```
+bigquery://PROJECT_ID/DATASET?keyFile=/path/to/keyfile.json&location=US
+```
+
+- `PROJECT_ID` (hostname): GCP project ID (required)
+- `DATASET` (pathname): default dataset (optional)
+- `keyFile`: path to service account JSON key file (optional, falls back to ADC / `GOOGLE_APPLICATION_CREDENTIALS`)
+- `location`: BigQuery processing location (optional, e.g., `US`, `EU`)
+
+**TOML configuration:**
+```toml
+[[sources]]
+id = "bigquery_prod"
+type = "bigquery"
+project = "my-gcp-project"        # GCP project ID
+database = "analytics_dataset"    # default dataset (optional)
+password = "/path/to/sa-key.json" # key file path (optional)
+location = "US"                   # processing location (optional, e.g., US, EU)
+```
+
+**Key differences from other connectors:**
+- Stateless HTTP client — no persistent connection, `disconnect()` is a no-op
+- No traditional indexes (returns empty array for `getTableIndexes`)
+- Three-level namespace: project (catalog) > dataset (schema) > table
+- `getCatalogs()` returns the connected project ID
+- Uses `@google-cloud/bigquery` client API for metadata (not raw SQL `INFORMATION_SCHEMA`)
+- Backtick quoting for identifiers (same as MySQL/Databricks)
+- Integration tests require real GCP credentials (env vars: `BIGQUERY_PROJECT_ID`, `BIGQUERY_KEY_FILE`), not Docker/Testcontainers
 
 ## Testing
 
@@ -145,6 +184,11 @@ SQL Server containers are the slowest to start (3-5 min) and need 4GB+ Docker me
 Databricks integration tests require real credentials via environment variables (no Docker):
 ```bash
 DATABRICKS_SERVER_HOSTNAME=host DATABRICKS_HTTP_PATH=/sql/... DATABRICKS_TOKEN=dapi... pnpm test -- databricks.integration
+```
+
+BigQuery integration tests require real GCP credentials via environment variables (no Docker):
+```bash
+BIGQUERY_PROJECT_ID=my-project BIGQUERY_KEY_FILE=/path/to/sa-key.json pnpm test -- bigquery.integration
 ```
 
 See `.claude/skills/testing/SKILL.md` for detailed testing guidance.
