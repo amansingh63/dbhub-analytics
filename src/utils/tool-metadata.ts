@@ -149,7 +149,7 @@ export function getSearchObjectsMetadata(sourceId: string): { name: string; desc
   const title = isSingleSource
     ? `Search Database Objects (${dbType})`
     : `Search Database Objects on ${sourceId} (${dbType})`;
-  const objectTypes = dbType === "databricks"
+  const objectTypes = dbType === "databricks" || dbType === "bigquery"
     ? "catalogs, schemas, tables, columns, procedures, functions, indexes"
     : "schemas, tables, columns, procedures, functions, indexes";
   const description = isSingleSource
@@ -216,7 +216,7 @@ function buildSearchObjectsTool(sourceId: string): Tool {
         name: "object_type",
         type: "string",
         required: true,
-        description: "Object type to search (catalog only for Databricks)",
+        description: "Object type to search (catalog for Databricks/BigQuery three-level namespace)",
       },
       {
         name: "pattern",
@@ -228,7 +228,7 @@ function buildSearchObjectsTool(sourceId: string): Tool {
         name: "catalog",
         type: "string",
         required: false,
-        description: "Filter to catalog (Databricks only, three-level namespace: catalog.schema.table)",
+        description: "Filter to catalog (Databricks: catalog.schema.table, BigQuery: project.dataset.table)",
       },
       {
         name: "schema",

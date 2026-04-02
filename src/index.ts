@@ -11,6 +11,7 @@ const connectorModules = [
   { load: () => import("./connectors/mysql/index.js"), name: "MySQL", driver: "mysql2" },
   { load: () => import("./connectors/mariadb/index.js"), name: "MariaDB", driver: "mariadb" },
   { load: () => import("./connectors/databricks/index.js"), name: "Databricks", driver: "@databricks/sql" },
+  { load: () => import("./connectors/bigquery/index.js"), name: "BigQuery", driver: "@google-cloud/bigquery" },
 ];
 
 loadConnectors(connectorModules)

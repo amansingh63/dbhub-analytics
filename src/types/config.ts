@@ -27,7 +27,7 @@ export interface SSHConfig {
  * Database connection parameters (alternative to DSN)
  */
 export interface ConnectionParams {
-  type: "postgres" | "mysql" | "mariadb" | "sqlserver" | "sqlite" | "databricks";
+  type: "postgres" | "mysql" | "mariadb" | "sqlserver" | "sqlite" | "databricks" | "bigquery";
   host?: string;
   port?: number;
   database?: string;
@@ -54,6 +54,11 @@ export interface SourceConfig extends ConnectionParams, SSHConfig {
   init_script?: string; // Optional SQL script to run on connection (for demo mode or initialization)
   lazy?: boolean; // Defer connection until first query (default: false)
   search_path?: string; // Comma-separated list of schemas for PostgreSQL search_path (e.g., "myschema,public")
+  // Databricks-specific
+  path?: string; // HTTP path to SQL warehouse (e.g., /sql/2.0/warehouses/abc123). Alternative to database.
+  // BigQuery-specific
+  project?: string; // GCP project ID. Alternative to host.
+  location?: string; // BigQuery processing location (e.g., US, EU, us-east1)
 }
 
 /**

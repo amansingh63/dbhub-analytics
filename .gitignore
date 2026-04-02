@@ -91,3 +91,4 @@ $RECYCLE.BIN/
 *.o
 *.so
 .mcp.json
+bq-sa.json

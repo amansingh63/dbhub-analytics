@@ -25,7 +25,7 @@ export type DetailLevel = "names" | "summary" | "full";
 export const searchDatabaseObjectsSchema = {
   object_type: z
     .enum(["catalog", "schema", "table", "column", "procedure", "function", "index"])
-    .describe("Object type to search (catalog only for Databricks)"),
+    .describe("Object type to search (catalog for Databricks/BigQuery three-level namespace)"),
   pattern: z
     .string()
     .optional()
@@ -34,7 +34,7 @@ export const searchDatabaseObjectsSchema = {
   catalog: z
     .string()
     .optional()
-    .describe("Filter to catalog (Databricks only, three-level namespace: catalog.schema.table)"),
+    .describe("Filter to catalog (Databricks: catalog.schema.table, BigQuery: project.dataset.table)"),
   schema: z
     .string()
     .optional()
@@ -121,7 +121,7 @@ async function getTableComment(
 }
 
 /**
- * Search for catalogs (Databricks only — three-level namespace: catalog.schema.table)
+ * Search for catalogs (Databricks/BigQuery — three-level namespace)
  */
 async function searchCatalogs(
   connector: Connector,
@@ -584,14 +584,14 @@ export function createSearchDatabaseObjectsToolHandler(sourceId?: string) {
       // Validate catalog parameter — only supported for connectors with getCatalogs
       if (catalog && !connector.getCatalogs) {
         success = false;
-        errorMessage = "The 'catalog' parameter is only supported for Databricks (three-level namespace: catalog.schema.table)";
+        errorMessage = "The 'catalog' parameter is only supported for connectors with three-level namespaces (Databricks: catalog.schema.table, BigQuery: project.dataset.table)";
         return createToolErrorResponse(errorMessage, "CATALOG_NOT_SUPPORTED");
       }
 
       // Validate catalog object_type — only supported for connectors with getCatalogs
       if (object_type === "catalog" && !connector.getCatalogs) {
         success = false;
-        errorMessage = "object_type 'catalog' is only supported for Databricks (three-level namespace: catalog.schema.table)";
+        errorMessage = "object_type 'catalog' is only supported for connectors with three-level namespaces (Databricks: catalog.schema.table, BigQuery: project.dataset.table)";
         return createToolErrorResponse(errorMessage, "CATALOG_NOT_SUPPORTED");
       }
 

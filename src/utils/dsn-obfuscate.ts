@@ -193,6 +193,7 @@ function protocolToConnectorType(protocol: string): ConnectorType | undefined {
     'sqlserver': 'sqlserver',
     'sqlite': 'sqlite',
     'databricks': 'databricks',
+    'bigquery': 'bigquery',
   };
   return mapping[protocol];
 }
@@ -210,6 +211,7 @@ export function getDefaultPortForType(type: ConnectorType): number | undefined {
     'sqlserver': 1433,
     'sqlite': undefined,
     'databricks': 443,
+    'bigquery': undefined,
   };
   return ports[type];
 }

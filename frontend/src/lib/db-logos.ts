@@ -5,6 +5,7 @@ import MariaDBLogo from '../assets/logos/mariadb.svg';
 import SQLServerLogo from '../assets/logos/sqlserver.svg';
 import SQLiteLogo from '../assets/logos/sqlite.svg';
 import DatabricksLogo from '../assets/logos/databricks.svg';
+import BigQueryLogo from '../assets/logos/bigquery.svg';
 
 export const DB_LOGOS: Record<DatabaseType, string> = {
   postgres: PostgresLogo,
@@ -13,4 +14,5 @@ export const DB_LOGOS: Record<DatabaseType, string> = {
   sqlserver: SQLServerLogo,
   sqlite: SQLiteLogo,
   databricks: DatabricksLogo,
+  bigquery: BigQueryLogo,
 };

@@ -227,7 +227,12 @@ function validateToolsConfig(
  */
 function validateSourceConfig(source: SourceConfig, configPath: string): void {
   const hasConnectionParams =
-    source.type && (source.type === "sqlite" ? source.database : source.host);
+    source.type && (
+      source.type === "sqlite" ? source.database :
+      source.type === "bigquery" ? source.project :
+      source.type === "databricks" ? (source.host && source.path) :
+      source.host
+    );
 
   if (!source.dsn && !hasConnectionParams) {
     throw new Error(
@@ -240,7 +245,7 @@ function validateSourceConfig(source: SourceConfig, configPath: string): void {
 
   // Validate type if provided
   if (source.type) {
-    const validTypes = ["postgres", "mysql", "mariadb", "sqlserver", "sqlite", "databricks"];
+    const validTypes = ["postgres", "mysql", "mariadb", "sqlserver", "sqlite", "databricks", "bigquery"];
     if (!validTypes.includes(source.type)) {
       throw new Error(
         `Configuration file ${configPath}: source '${source.id}' has invalid type '${source.type}'. ` +
@@ -542,22 +547,54 @@ export function buildDSNFromSource(source: SourceConfig): string {
   // DSN format: databricks://token:TOKEN@HOST:PORT/HTTP_PATH?catalog=CAT&schema=SCH
   // - host: workspace hostname
   // - password: access token
-  // - database: HTTP path to SQL warehouse (e.g., /sql/2.0/warehouses/abc)
+  // - path (or database): HTTP path to SQL warehouse (e.g., /sql/2.0/warehouses/abc)
   if (source.type === "databricks") {
-    if (!source.host || !source.password || !source.database) {
+    if (!source.host || !source.password || !source.path) {
       throw new Error(
         `Source '${source.id}': missing required Databricks parameters. ` +
-          `Required: type, host, password (access token), database (HTTP path)`
+          `Required: type, host, password (access token), path (HTTP path to SQL warehouse)`
       );
     }
+    const httpPathRaw = source.path;
     const port = source.port || 443;
     const encodedToken = encodeURIComponent(source.password);
-    // database holds the HTTP path; strip leading slash to avoid double-slash in URL
-    const httpPath = source.database.startsWith("/") ? source.database.substring(1) : source.database;
+    // strip leading slash to avoid double-slash in URL
+    const httpPath = httpPathRaw.startsWith("/") ? httpPathRaw.substring(1) : httpPathRaw;
     let dsn = `databricks://token:${encodedToken}@${source.host}:${port}/${httpPath}`;
     const queryParams: string[] = [];
     if (source.sslmode) {
       queryParams.push(`sslmode=${source.sslmode}`);
+    }
+    if (queryParams.length > 0) {
+      dsn += `?${queryParams.join("&")}`;
+    }
+    return dsn;
+  }
+
+  // Handle BigQuery
+  // DSN format: bigquery://PROJECT_ID/DATASET?keyFile=PATH&location=LOC
+  // - project (or host): GCP project ID
+  // - database: default dataset (optional)
+  // - password: path to service account key file (optional)
+  // - location: BigQuery processing location (optional)
+  if (source.type === "bigquery") {
+    if (!source.project) {
+      throw new Error(
+        `Source '${source.id}': missing required BigQuery parameters. ` +
+          `Required: type, project (GCP project ID)`
+      );
+    }
+    const projectId = source.project;
+    let dsn = `bigquery://${projectId}`;
+    if (source.database) {
+      dsn += `/${source.database}`;
+    }
+    const queryParams: string[] = [];
+    if (source.password) {
+      queryParams.push(`keyFile=${encodeURIComponent(source.password)}`);
+    }
+    if (source.location) {
+      queryParams.push(`location=${encodeURIComponent(source.location)}`);
     }
     if (queryParams.length > 0) {
       dsn += `?${queryParams.join("&")}`;
