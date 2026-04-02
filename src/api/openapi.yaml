@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
-  title: DBHub Data Sources API
+  title: DBHub Analytics Data Sources API
   description: RESTful API for managing and inspecting database data sources
   version: 1.0.0
   contact:
-    name: DBHub
-    url: https://github.com/bytebase/dbhub
+    name: DBHub Analytics
+    url: https://github.com/amansingh63/dbhub-analytics
 
 servers:
   - url: http://localhost:8080

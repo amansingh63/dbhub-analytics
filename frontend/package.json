@@ -1,5 +1,5 @@
 {
-  "name": "@dbhub/frontend",
+  "name": "@dbhub-analytics/frontend",
   "private": true,
   "version": "0.21.0",
   "type": "module",

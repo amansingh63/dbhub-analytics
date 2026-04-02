@@ -1,16 +1,16 @@
 {
-  "name": "dbhub",
-  "version": "0.21.0",
-  "mcpName": "io.github.bytebase/dbhub",
-  "description": "Minimal, token-efficient Database MCP Server for PostgreSQL, MySQL, SQL Server, SQLite, MariaDB",
+  "name": "dbhub-analytics",
+  "version": "0.1.0",
+  "mcpName": "io.github.amansingh63/dbhub-analytics",
+  "description": "MCP server for Databricks SQL, Google BigQuery, PostgreSQL, MySQL, SQL Server, SQLite, MariaDB — connect AI assistants to cloud data warehouses and databases",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bytebase/dbhub.git"
+    "url": "https://github.com/amansingh63/dbhub-analytics.git"
   },
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "dbhub": "dist/index.js"
+    "dbhub-analytics": "dist/index.js"
   },
   "files": [
     "dist",
@@ -36,8 +36,8 @@
   "engines": {
     "node": ">=20"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["mcp", "mcp-server", "databricks", "bigquery", "database", "sql", "claude-desktop", "cursor", "model-context-protocol", "analytics"],
+  "author": "amansingh63",
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/rds-signer": "^3.1001.0",

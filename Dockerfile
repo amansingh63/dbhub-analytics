@@ -26,12 +26,12 @@ COPY . .
 RUN pnpm run build
 
 # Deploy production dependencies to a clean directory
-# - --filter=dbhub: Only deploy dependencies for the main package (not frontend)
+# - --filter=dbhub-analytics: Only deploy dependencies for the main package (not frontend)
 # - --prod: Only production dependencies (no devDependencies)
 # - --legacy: Use legacy deploy mode for pnpm v10 workspace compatibility
 # This creates a more efficient node_modules structure
-# by copying only what's needed from the pnpm store to /prod/dbhub
-RUN pnpm deploy --filter=dbhub --prod --legacy /prod/dbhub
+# by copying only what's needed from the pnpm store to /prod/dbhub-analytics
+RUN pnpm deploy --filter=dbhub-analytics --prod --legacy /prod/dbhub-analytics
 
 # ============================================================================
 # Production Stage: Minimal runtime image
@@ -43,8 +43,8 @@ WORKDIR /app
 # Copy optimized production dependencies from deploy directory
 # This includes node_modules with an efficient .pnpm store structure
 # Smaller than a standard pnpm install --prod
-COPY --from=builder /prod/dbhub/node_modules ./node_modules
-COPY --from=builder /prod/dbhub/package.json ./
+COPY --from=builder /prod/dbhub-analytics/node_modules ./node_modules
+COPY --from=builder /prod/dbhub-analytics/package.json ./
 
 # Copy built application from builder stage
 # This includes both backend (dist/*.js) and frontend (dist/public/*)
