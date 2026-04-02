@@ -11,7 +11,7 @@ import {
 /**
  * Object types that can be searched
  */
-export type DatabaseObjectType = "schema" | "table" | "column" | "procedure" | "function" | "index";
+export type DatabaseObjectType = "catalog" | "schema" | "table" | "column" | "procedure" | "function" | "index";
 
 /**
  * Detail level for search results
@@ -24,13 +24,17 @@ export type DetailLevel = "names" | "summary" | "full";
 // Schema for search_objects tool (unified search and list)
 export const searchDatabaseObjectsSchema = {
   object_type: z
-    .enum(["schema", "table", "column", "procedure", "function", "index"])
-    .describe("Object type to search"),
+    .enum(["catalog", "schema", "table", "column", "procedure", "function", "index"])
+    .describe("Object type to search (catalog only for Databricks)"),
   pattern: z
     .string()
     .optional()
     .default("%")
     .describe("LIKE pattern (% = any chars, _ = one char). Default: %"),
+  catalog: z
+    .string()
+    .optional()
+    .describe("Filter to catalog (Databricks only, three-level namespace: catalog.schema.table)"),
   schema: z
     .string()
     .optional()
@@ -74,15 +78,16 @@ function likePatternToRegex(pattern: string): RegExp {
 async function getTableRowCount(
   connector: Connector,
   tableName: string,
-  schemaName?: string
+  schemaName?: string,
+  catalogName?: string
 ): Promise<number | null> {
   try {
     if (connector.getTableRowCount) {
-      return await connector.getTableRowCount(tableName, schemaName);
+      return await connector.getTableRowCount(tableName, schemaName, catalogName);
     }
 
     // Fallback: COUNT(*) for connectors without a statistics-based implementation
-    const qualifiedTable = quoteQualifiedIdentifier(tableName, schemaName, connector.id);
+    const qualifiedTable = quoteQualifiedIdentifier(tableName, schemaName, connector.id, catalogName);
     const countQuery = `SELECT COUNT(*) as count FROM ${qualifiedTable}`;
     const result = await connector.executeSQL(countQuery, { maxRows: 1 });
 
@@ -102,11 +107,12 @@ async function getTableRowCount(
 async function getTableComment(
   connector: Connector,
   tableName: string,
-  schemaName?: string
+  schemaName?: string,
+  catalogName?: string
 ): Promise<string | null> {
   try {
     if (connector.getTableComment) {
-      return await connector.getTableComment(tableName, schemaName);
+      return await connector.getTableComment(tableName, schemaName, catalogName);
     }
     return null;
   } catch (error) {
@@ -115,34 +121,82 @@ async function getTableComment(
 }
 
 /**
- * Search for schemas
+ * Search for catalogs (Databricks only — three-level namespace: catalog.schema.table)
  */
-async function searchSchemas(
+async function searchCatalogs(
   connector: Connector,
   pattern: string,
   detailLevel: DetailLevel,
   limit: number
 ): Promise<any[]> {
-  const schemas = await connector.getSchemas();
+  if (!connector.getCatalogs) {
+    return [];
+  }
+
+  const catalogs = await connector.getCatalogs();
+  const regex = likePatternToRegex(pattern);
+  const matched = catalogs.filter((catalog: string) => regex.test(catalog)).slice(0, limit);
+
+  if (detailLevel === "names") {
+    return matched.map((name: string) => ({ name }));
+  }
+
+  // For summary and full, add schema count
+  const results = await Promise.all(
+    matched.map(async (catalogName: string) => {
+      try {
+        const schemas = await connector.getSchemas(catalogName);
+        return {
+          name: catalogName,
+          schema_count: schemas.length,
+        };
+      } catch (error) {
+        return {
+          name: catalogName,
+          schema_count: 0,
+        };
+      }
+    })
+  );
+
+  return results;
+}
+
+/**
+ * Search for schemas
+ */
+async function searchSchemas(
+  connector: Connector,
+  pattern: string,
+  catalogFilter: string | undefined,
+  detailLevel: DetailLevel,
+  limit: number
+): Promise<any[]> {
+  const schemas = await connector.getSchemas(catalogFilter);
   const regex = likePatternToRegex(pattern);
   const matched = schemas.filter((schema: string) => regex.test(schema)).slice(0, limit);
 
   if (detailLevel === "names") {
-    return matched.map((name: string) => ({ name }));
+    return matched.map((name: string) => ({
+      name,
+      ...(catalogFilter ? { catalog: catalogFilter } : {}),
+    }));
   }
 
   // For summary and full, add table count
   const results = await Promise.all(
     matched.map(async (schemaName: string) => {
       try {
-        const tables = await connector.getTables(schemaName);
+        const tables = await connector.getTables(schemaName, catalogFilter);
         return {
           name: schemaName,
+          ...(catalogFilter ? { catalog: catalogFilter } : {}),
           table_count: tables.length,
         };
       } catch (error) {
         return {
           name: schemaName,
+          ...(catalogFilter ? { catalog: catalogFilter } : {}),
           table_count: 0,
         };
       }
@@ -159,6 +213,7 @@ async function searchTables(
   connector: Connector,
   pattern: string,
   schemaFilter: string | undefined,
+  catalogFilter: string | undefined,
   detailLevel: DetailLevel,
   limit: number
 ): Promise<any[]> {
@@ -170,7 +225,7 @@ async function searchTables(
   if (schemaFilter) {
     schemasToSearch = [schemaFilter];
   } else {
-    schemasToSearch = await connector.getSchemas();
+    schemasToSearch = await connector.getSchemas(catalogFilter);
   }
 
   // Search tables in each schema
@@ -178,35 +233,36 @@ async function searchTables(
     if (results.length >= limit) break;
 
     try {
-      const tables = await connector.getTables(schemaName);
+      const tables = await connector.getTables(schemaName, catalogFilter);
       const matched = tables.filter((table: string) => regex.test(table));
 
       for (const tableName of matched) {
         if (results.length >= limit) break;
 
+        const baseResult: any = {
+          name: tableName,
+          schema: schemaName,
+          ...(catalogFilter ? { catalog: catalogFilter } : {}),
+        };
+
         if (detailLevel === "names") {
-          results.push({
-            name: tableName,
-            schema: schemaName,
-          });
+          results.push(baseResult);
         } else if (detailLevel === "summary") {
           // Get column count and table comment for summary
           try {
-            const columns = await connector.getTableSchema(tableName, schemaName);
-            const rowCount = await getTableRowCount(connector, tableName, schemaName);
-            const comment = await getTableComment(connector, tableName, schemaName);
+            const columns = await connector.getTableSchema(tableName, schemaName, catalogFilter);
+            const rowCount = await getTableRowCount(connector, tableName, schemaName, catalogFilter);
+            const comment = await getTableComment(connector, tableName, schemaName, catalogFilter);
 
             results.push({
-              name: tableName,
-              schema: schemaName,
+              ...baseResult,
               column_count: columns.length,
               row_count: rowCount,
               ...(comment ? { comment } : {}),
             });
           } catch (error) {
             results.push({
-              name: tableName,
-              schema: schemaName,
+              ...baseResult,
               column_count: null,
               row_count: null,
             });
@@ -214,14 +270,13 @@ async function searchTables(
         } else {
           // full detail
           try {
-            const columns = await connector.getTableSchema(tableName, schemaName);
-            const indexes = await connector.getTableIndexes(tableName, schemaName);
-            const rowCount = await getTableRowCount(connector, tableName, schemaName);
-            const comment = await getTableComment(connector, tableName, schemaName);
+            const columns = await connector.getTableSchema(tableName, schemaName, catalogFilter);
+            const indexes = await connector.getTableIndexes(tableName, schemaName, catalogFilter);
+            const rowCount = await getTableRowCount(connector, tableName, schemaName, catalogFilter);
+            const comment = await getTableComment(connector, tableName, schemaName, catalogFilter);
 
             results.push({
-              name: tableName,
-              schema: schemaName,
+              ...baseResult,
               column_count: columns.length,
               row_count: rowCount,
               ...(comment ? { comment } : {}),
@@ -241,8 +296,7 @@ async function searchTables(
             });
           } catch (error) {
             results.push({
-              name: tableName,
-              schema: schemaName,
+              ...baseResult,
               error: `Unable to fetch full details: ${(error as Error).message}`,
             });
           }
@@ -265,6 +319,7 @@ async function searchColumns(
   pattern: string,
   schemaFilter: string | undefined,
   tableFilter: string | undefined,
+  catalogFilter: string | undefined,
   detailLevel: DetailLevel,
   limit: number
 ): Promise<any[]> {
@@ -276,7 +331,7 @@ async function searchColumns(
   if (schemaFilter) {
     schemasToSearch = [schemaFilter];
   } else {
-    schemasToSearch = await connector.getSchemas();
+    schemasToSearch = await connector.getSchemas(catalogFilter);
   }
 
   // Search columns in tables across schemas
@@ -291,31 +346,32 @@ async function searchColumns(
         tablesToSearch = [tableFilter];
       } else {
         // Otherwise search all tables in the schema
-        tablesToSearch = await connector.getTables(schemaName);
+        tablesToSearch = await connector.getTables(schemaName, catalogFilter);
       }
 
       for (const tableName of tablesToSearch) {
         if (results.length >= limit) break;
 
         try {
-          const columns = await connector.getTableSchema(tableName, schemaName);
+          const columns = await connector.getTableSchema(tableName, schemaName, catalogFilter);
           const matchedColumns = columns.filter((col: any) => regex.test(col.column_name));
 
           for (const column of matchedColumns) {
             if (results.length >= limit) break;
 
+            const baseResult: any = {
+              name: column.column_name,
+              table: tableName,
+              schema: schemaName,
+              ...(catalogFilter ? { catalog: catalogFilter } : {}),
+            };
+
             if (detailLevel === "names") {
-              results.push({
-                name: column.column_name,
-                table: tableName,
-                schema: schemaName,
-              });
+              results.push(baseResult);
             } else {
               // summary and full are the same for columns
               results.push({
-                name: column.column_name,
-                table: tableName,
-                schema: schemaName,
+                ...baseResult,
                 type: column.data_type,
                 nullable: column.is_nullable === "YES",
                 default: column.column_default,
@@ -346,6 +402,7 @@ async function searchProcedures(
   connector: Connector,
   pattern: string,
   schemaFilter: string | undefined,
+  catalogFilter: string | undefined,
   detailLevel: DetailLevel,
   limit: number,
   routineType?: "procedure" | "function"
@@ -358,7 +415,7 @@ async function searchProcedures(
   if (schemaFilter) {
     schemasToSearch = [schemaFilter];
   } else {
-    schemasToSearch = await connector.getSchemas();
+    schemasToSearch = await connector.getSchemas(catalogFilter);
   }
 
   // Search procedures/functions in each schema
@@ -366,24 +423,26 @@ async function searchProcedures(
     if (results.length >= limit) break;
 
     try {
-      const procedures = await connector.getStoredProcedures(schemaName, routineType);
+      const procedures = await connector.getStoredProcedures(schemaName, routineType, catalogFilter);
       const matched = procedures.filter((proc: string) => regex.test(proc));
 
       for (const procName of matched) {
         if (results.length >= limit) break;
 
+        const baseResult: any = {
+          name: procName,
+          schema: schemaName,
+          ...(catalogFilter ? { catalog: catalogFilter } : {}),
+        };
+
         if (detailLevel === "names") {
-          results.push({
-            name: procName,
-            schema: schemaName,
-          });
+          results.push(baseResult);
         } else {
           // summary and full - get procedure details
           try {
-            const details = await connector.getStoredProcedureDetail(procName, schemaName);
+            const details = await connector.getStoredProcedureDetail(procName, schemaName, catalogFilter);
             results.push({
-              name: procName,
-              schema: schemaName,
+              ...baseResult,
               type: details.procedure_type,
               language: details.language,
               parameters: detailLevel === "full" ? details.parameter_list : undefined,
@@ -392,8 +451,7 @@ async function searchProcedures(
             });
           } catch (error) {
             results.push({
-              name: procName,
-              schema: schemaName,
+              ...baseResult,
               error: `Unable to fetch details: ${(error as Error).message}`,
             });
           }
@@ -416,6 +474,7 @@ async function searchIndexes(
   pattern: string,
   schemaFilter: string | undefined,
   tableFilter: string | undefined,
+  catalogFilter: string | undefined,
   detailLevel: DetailLevel,
   limit: number
 ): Promise<any[]> {
@@ -427,7 +486,7 @@ async function searchIndexes(
   if (schemaFilter) {
     schemasToSearch = [schemaFilter];
   } else {
-    schemasToSearch = await connector.getSchemas();
+    schemasToSearch = await connector.getSchemas(catalogFilter);
   }
 
   // Search indexes in tables across schemas
@@ -442,31 +501,32 @@ async function searchIndexes(
         tablesToSearch = [tableFilter];
       } else {
         // Otherwise search all tables in the schema
-        tablesToSearch = await connector.getTables(schemaName);
+        tablesToSearch = await connector.getTables(schemaName, catalogFilter);
       }
 
       for (const tableName of tablesToSearch) {
         if (results.length >= limit) break;
 
         try {
-          const indexes = await connector.getTableIndexes(tableName, schemaName);
+          const indexes = await connector.getTableIndexes(tableName, schemaName, catalogFilter);
           const matchedIndexes = indexes.filter((idx: any) => regex.test(idx.index_name));
 
           for (const index of matchedIndexes) {
             if (results.length >= limit) break;
 
+            const baseResult: any = {
+              name: index.index_name,
+              table: tableName,
+              schema: schemaName,
+              ...(catalogFilter ? { catalog: catalogFilter } : {}),
+            };
+
             if (detailLevel === "names") {
-              results.push({
-                name: index.index_name,
-                table: tableName,
-                schema: schemaName,
-              });
+              results.push(baseResult);
             } else {
               // summary and full are the same for indexes
               results.push({
-                name: index.index_name,
-                table: tableName,
-                schema: schemaName,
+                ...baseResult,
                 columns: index.column_names,
                 unique: index.is_unique,
                 primary: index.is_primary,
@@ -495,6 +555,7 @@ export function createSearchDatabaseObjectsToolHandler(sourceId?: string) {
     const {
       object_type,
       pattern = "%",
+      catalog,
       schema,
       table,
       detail_level = "names",
@@ -502,6 +563,7 @@ export function createSearchDatabaseObjectsToolHandler(sourceId?: string) {
     } = args as {
       object_type: DatabaseObjectType;
       pattern?: string;
+      catalog?: string;
       schema?: string;
       table?: string;
       detail_level: DetailLevel;
@@ -519,7 +581,29 @@ export function createSearchDatabaseObjectsToolHandler(sourceId?: string) {
 
       const connector = ConnectorManager.getCurrentConnector(sourceId);
 
-      // Tool is already registered, so it's enabled (no need to check)
+      // Validate catalog parameter — only supported for connectors with getCatalogs
+      if (catalog && !connector.getCatalogs) {
+        success = false;
+        errorMessage = "The 'catalog' parameter is only supported for Databricks (three-level namespace: catalog.schema.table)";
+        return createToolErrorResponse(errorMessage, "CATALOG_NOT_SUPPORTED");
+      }
+
+      // Validate catalog object_type — only supported for connectors with getCatalogs
+      if (object_type === "catalog" && !connector.getCatalogs) {
+        success = false;
+        errorMessage = "object_type 'catalog' is only supported for Databricks (three-level namespace: catalog.schema.table)";
+        return createToolErrorResponse(errorMessage, "CATALOG_NOT_SUPPORTED");
+      }
+
+      // Validate catalog if provided
+      if (catalog && connector.getCatalogs) {
+        const catalogs = await connector.getCatalogs();
+        if (!catalogs.includes(catalog)) {
+          success = false;
+          errorMessage = `Catalog '${catalog}' does not exist. Available catalogs: ${catalogs.join(", ")}`;
+          return createToolErrorResponse(errorMessage, "CATALOG_NOT_FOUND");
+        }
+      }
 
       // Validate table parameter
       if (table) {
@@ -537,7 +621,7 @@ export function createSearchDatabaseObjectsToolHandler(sourceId?: string) {
 
       // Validate schema if provided
       if (schema) {
-        const schemas = await connector.getSchemas();
+        const schemas = await connector.getSchemas(catalog);
         if (!schemas.includes(schema)) {
           success = false;
           errorMessage = `Schema '${schema}' does not exist. Available schemas: ${schemas.join(", ")}`;
@@ -549,23 +633,26 @@ export function createSearchDatabaseObjectsToolHandler(sourceId?: string) {
 
       // Route to appropriate search function
       switch (object_type) {
+        case "catalog":
+          results = await searchCatalogs(connector, pattern, detail_level, limit);
+          break;
         case "schema":
-          results = await searchSchemas(connector, pattern, detail_level, limit);
+          results = await searchSchemas(connector, pattern, catalog, detail_level, limit);
           break;
         case "table":
-          results = await searchTables(connector, pattern, schema, detail_level, limit);
+          results = await searchTables(connector, pattern, schema, catalog, detail_level, limit);
           break;
         case "column":
-          results = await searchColumns(connector, pattern, schema, table, detail_level, limit);
+          results = await searchColumns(connector, pattern, schema, table, catalog, detail_level, limit);
           break;
         case "procedure":
-          results = await searchProcedures(connector, pattern, schema, detail_level, limit, "procedure");
+          results = await searchProcedures(connector, pattern, schema, catalog, detail_level, limit, "procedure");
           break;
         case "function":
-          results = await searchProcedures(connector, pattern, schema, detail_level, limit, "function");
+          results = await searchProcedures(connector, pattern, schema, catalog, detail_level, limit, "function");
           break;
         case "index":
-          results = await searchIndexes(connector, pattern, schema, table, detail_level, limit);
+          results = await searchIndexes(connector, pattern, schema, table, catalog, detail_level, limit);
           break;
         default:
           success = false;
@@ -576,6 +663,7 @@ export function createSearchDatabaseObjectsToolHandler(sourceId?: string) {
       return createToolSuccessResponse({
         object_type,
         pattern,
+        ...(catalog ? { catalog } : {}),
         schema,
         table,
         detail_level,
@@ -596,7 +684,7 @@ export function createSearchDatabaseObjectsToolHandler(sourceId?: string) {
         {
           sourceId: effectiveSourceId,
           toolName: effectiveSourceId === "default" ? "search_objects" : `search_objects_${effectiveSourceId}`,
-          sql: `search_objects(object_type=${object_type}, pattern=${pattern}, schema=${schema || "all"}, table=${table || "all"}, detail_level=${detail_level})`,
+          sql: `search_objects(object_type=${object_type}, pattern=${pattern}, catalog=${catalog || "all"}, schema=${schema || "all"}, table=${table || "all"}, detail_level=${detail_level})`,
         },
         startTime,
         extra,

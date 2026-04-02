@@ -181,8 +181,8 @@ describe('search_database_objects tool', () => {
 
       const parsed = parseToolResponse(result);
       expect(parsed.data.count).toBe(2);
-      expect(mockConnector.getTables).toHaveBeenCalledWith('public');
-      expect(mockConnector.getTables).not.toHaveBeenCalledWith('private');
+      expect(mockConnector.getTables).toHaveBeenCalledWith('public', undefined);
+      expect(mockConnector.getTables).not.toHaveBeenCalledWith('private', undefined);
     });
 
     it('should return summary with metadata', async () => {
@@ -377,7 +377,7 @@ describe('search_database_objects tool', () => {
         name: 'users',
         row_count: 42,
       });
-      expect(mockConnector.getTableRowCount).toHaveBeenCalledWith('users', 'public');
+      expect(mockConnector.getTableRowCount).toHaveBeenCalledWith('users', 'public', undefined);
       expect(mockConnector.executeSQL).not.toHaveBeenCalled();
     });
 
@@ -421,7 +421,7 @@ describe('search_database_objects tool', () => {
       const parsed = parseToolResponse(result);
       expect(parsed.success).toBe(true);
       expect(parsed.data.results[0].row_count).toBeNull();
-      expect(mockConnector.getTableRowCount).toHaveBeenCalledWith('users', 'public');
+      expect(mockConnector.getTableRowCount).toHaveBeenCalledWith('users', 'public', undefined);
       expect(mockConnector.executeSQL).not.toHaveBeenCalled();
     });
   });
@@ -526,7 +526,7 @@ describe('search_database_objects tool', () => {
         'get_users_by_email',
       ]);
       // Verify routineType filter is passed to connector
-      expect(mockConnector.getStoredProcedures).toHaveBeenCalledWith('public', 'procedure');
+      expect(mockConnector.getStoredProcedures).toHaveBeenCalledWith('public', 'procedure', undefined);
     });
 
     it('should return procedure details in summary level', async () => {
@@ -586,7 +586,7 @@ describe('search_database_objects tool', () => {
         'get_user_name',
       ]);
       // Verify routineType filter is passed to connector
-      expect(mockConnector.getStoredProcedures).toHaveBeenCalledWith('public', 'function');
+      expect(mockConnector.getStoredProcedures).toHaveBeenCalledWith('public', 'function', undefined);
     });
 
     it('should return function details in summary level', async () => {
@@ -801,8 +801,8 @@ describe('search_database_objects tool', () => {
           { name: 'name', table: 'users', schema: 'public' },
         ]);
         // Verify only users table was queried
-        expect(mockConnector.getTableSchema).toHaveBeenCalledWith('users', 'public');
-        expect(mockConnector.getTableSchema).not.toHaveBeenCalledWith('orders', 'public');
+        expect(mockConnector.getTableSchema).toHaveBeenCalledWith('users', 'public', undefined);
+        expect(mockConnector.getTableSchema).not.toHaveBeenCalledWith('orders', 'public', undefined);
       });
 
       it('should require schema when table is specified', async () => {
@@ -903,8 +903,8 @@ describe('search_database_objects tool', () => {
         expect(parsed.data.count).toBe(2);
         expect(parsed.data.results.map((r: any) => r.name)).toEqual(['users_pkey', 'users_email_idx']);
         // Verify only users table was queried
-        expect(mockConnector.getTableIndexes).toHaveBeenCalledWith('users', 'public');
-        expect(mockConnector.getTableIndexes).not.toHaveBeenCalledWith('orders', 'public');
+        expect(mockConnector.getTableIndexes).toHaveBeenCalledWith('users', 'public', undefined);
+        expect(mockConnector.getTableIndexes).not.toHaveBeenCalledWith('orders', 'public', undefined);
       });
     });
 

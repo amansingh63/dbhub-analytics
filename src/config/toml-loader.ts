@@ -240,7 +240,7 @@ function validateSourceConfig(source: SourceConfig, configPath: string): void {
 
   // Validate type if provided
   if (source.type) {
-    const validTypes = ["postgres", "mysql", "mariadb", "sqlserver", "sqlite"];
+    const validTypes = ["postgres", "mysql", "mariadb", "sqlserver", "sqlite", "databricks"];
     if (!validTypes.includes(source.type)) {
       throw new Error(
         `Configuration file ${configPath}: source '${source.id}' has invalid type '${source.type}'. ` +
@@ -536,6 +536,33 @@ export function buildDSNFromSource(source: SourceConfig): string {
       );
     }
     return `sqlite:///${source.database}`;
+  }
+
+  // Handle Databricks
+  // DSN format: databricks://token:TOKEN@HOST:PORT/HTTP_PATH?catalog=CAT&schema=SCH
+  // - host: workspace hostname
+  // - password: access token
+  // - database: HTTP path to SQL warehouse (e.g., /sql/2.0/warehouses/abc)
+  if (source.type === "databricks") {
+    if (!source.host || !source.password || !source.database) {
+      throw new Error(
+        `Source '${source.id}': missing required Databricks parameters. ` +
+          `Required: type, host, password (access token), database (HTTP path)`
+      );
+    }
+    const port = source.port || 443;
+    const encodedToken = encodeURIComponent(source.password);
+    // database holds the HTTP path; strip leading slash to avoid double-slash in URL
+    const httpPath = source.database.startsWith("/") ? source.database.substring(1) : source.database;
+    let dsn = `databricks://token:${encodedToken}@${source.host}:${port}/${httpPath}`;
+    const queryParams: string[] = [];
+    if (source.sslmode) {
+      queryParams.push(`sslmode=${source.sslmode}`);
+    }
+    if (queryParams.length > 0) {
+      dsn += `?${queryParams.join("&")}`;
+    }
+    return dsn;
   }
 
   // For other databases, require host, user, database

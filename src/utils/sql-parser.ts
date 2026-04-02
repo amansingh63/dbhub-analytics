@@ -160,6 +160,15 @@ function scanTokenSQLServer(sql: string, i: number): SQLToken {
     ?? plainToken(i);
 }
 
+function scanTokenDatabricks(sql: string, i: number): SQLToken {
+  return scanSingleLineComment(sql, i)
+    ?? scanMultiLineComment(sql, i)
+    ?? scanSingleQuotedString(sql, i)
+    ?? scanDoubleQuotedString(sql, i)
+    ?? scanBacktickQuotedIdentifier(sql, i)
+    ?? plainToken(i);
+}
+
 type TokenScanner = (sql: string, i: number) => SQLToken;
 
 const dialectScanners: Record<ConnectorType, TokenScanner> = {
@@ -168,6 +177,7 @@ const dialectScanners: Record<ConnectorType, TokenScanner> = {
   mariadb: scanTokenMySQL,
   sqlite: scanTokenSQLite,
   sqlserver: scanTokenSQLServer,
+  databricks: scanTokenDatabricks,
 };
 
 function getScanner(dialect?: ConnectorType): TokenScanner {
